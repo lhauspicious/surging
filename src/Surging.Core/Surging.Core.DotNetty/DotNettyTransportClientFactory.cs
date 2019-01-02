@@ -4,6 +4,7 @@ using DotNetty.Common.Utilities;
 using DotNetty.Transport.Bootstrapping;
 using DotNetty.Transport.Channels;
 using DotNetty.Transport.Channels.Sockets;
+using DotNetty.Transport.Libuv;
 using Microsoft.Extensions.Logging;
 using Surging.Core.CPlatform;
 using Surging.Core.CPlatform.Messages;
@@ -11,7 +12,7 @@ using Surging.Core.CPlatform.Runtime.Server;
 using Surging.Core.CPlatform.Transport;
 using Surging.Core.CPlatform.Transport.Codec;
 using Surging.Core.CPlatform.Transport.Implementation;
-using Surging.Core.DotNetty.Adaper;
+using Surging.Core.DotNetty.Adapter;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -120,12 +121,24 @@ namespace Surging.Core.DotNetty
 
         private static Bootstrap GetBootstrap()
         {
+            IEventLoopGroup group;
+            
             var bootstrap = new Bootstrap();
+            if (AppConfig.ServerOptions.Libuv)
+            {
+                group = new EventLoopGroup();
+                bootstrap.Channel<TcpServerChannel>();
+            }
+            else
+            {
+                group = new MultithreadEventLoopGroup();
+                bootstrap.Channel<TcpServerSocketChannel>();
+            }
             bootstrap
                 .Channel<TcpSocketChannel>()
                 .Option(ChannelOption.TcpNodelay, true)
                 .Option(ChannelOption.Allocator, PooledByteBufferAllocator.Default)
-                .Group(new MultithreadEventLoopGroup(1));
+                .Group(group);
 
             return bootstrap;
         }

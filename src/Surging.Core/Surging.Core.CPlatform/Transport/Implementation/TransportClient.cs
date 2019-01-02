@@ -122,13 +122,14 @@ namespace Surging.Core.CPlatform.Transport.Implementation
                 //删除回调任务
                 TaskCompletionSource<TransportMessage> value;
                 _resultDictionary.TryRemove(id, out value);
+                value.TrySetCanceled();
             }
         }
 
         private async Task MessageListener_Received(IMessageSender sender, TransportMessage message)
         {
-            if (_logger.IsEnabled(LogLevel.Information))
-                _logger.LogInformation("接收到消息。");
+            if (_logger.IsEnabled(LogLevel.Trace))
+                _logger.LogTrace("服务消费者接收到消息。");
 
             TaskCompletionSource<TransportMessage> task;
             if (!_resultDictionary.TryGetValue(message.Id, out task))
@@ -139,7 +140,7 @@ namespace Surging.Core.CPlatform.Transport.Implementation
                 var content = message.GetContent<RemoteInvokeResultMessage>();
                 if (!string.IsNullOrEmpty(content.ExceptionMessage))
                 {
-                    task.TrySetException(new CPlatformCommunicationException(content.ExceptionMessage));
+                    task.TrySetException(new CPlatformCommunicationException(content.ExceptionMessage,content.StatusCode));
                 }
                 else
                 {

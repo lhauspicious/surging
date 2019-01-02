@@ -2,6 +2,7 @@
 using Autofac.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
+using Microsoft.Extensions.Logging;
 using Surging.Core.ApiGateWay;
 using Surging.Core.Codec.MessagePack;
 using Surging.Core.Consul;
@@ -15,6 +16,7 @@ using Surging.Core.System.Intercept;
 using System;
 using System.IO;
 
+
 namespace Surging.ApiGateway
 {
     public class Program
@@ -25,9 +27,9 @@ namespace Surging.ApiGateway
                 .UseUrls("http://*:729")
                 .UseKestrel(options =>
                 {
+                    options.Limits.MaxRequestBodySize = null;
                     options.Limits.MaxConcurrentConnections =100;
-                    options.Limits.MaxConcurrentUpgradedConnections = 100;
-                    options.Limits.MaxRequestBodySize = 10 * 1024; 
+                    options.Limits.MaxConcurrentUpgradedConnections = 100; 
                     options.Limits.MinRequestBodyDataRate =
                         new MinDataRate(bytesPerSecond: 100, gracePeriod: TimeSpan.FromSeconds(10));
                     options.Limits.MinResponseDataRate =

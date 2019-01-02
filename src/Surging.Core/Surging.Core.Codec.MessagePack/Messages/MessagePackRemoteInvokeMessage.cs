@@ -1,5 +1,6 @@
 using MessagePack;
 using Surging.Core.CPlatform.Messages;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -35,10 +36,10 @@ namespace Surging.Core.Codec.MessagePack.Messages
         public MessagePackRemoteInvokeMessage(RemoteInvokeMessage message)
         {
             ServiceId = message.ServiceId;
-            Token = message.Token;
             DecodeJOject = message.DecodeJOject;
             ServiceKey = message.ServiceKey;
             Parameters = message.Parameters?.Select(i => new ParameterItem(i)).ToArray();
+            Attachments = message.Attachments?.Select(i => new ParameterItem(i)).ToArray();
         }
 
         public MessagePackRemoteInvokeMessage()
@@ -60,15 +61,18 @@ namespace Surging.Core.Codec.MessagePack.Messages
         [Key(4)]
         public ParameterItem[] Parameters { get; set; }
 
+        [Key(5)]
+        public ParameterItem[] Attachments { get; set; }
+
         public RemoteInvokeMessage GetRemoteInvokeMessage()
         {
             return new RemoteInvokeMessage
             {
                 Parameters = Parameters?.ToDictionary(i => i.Key, i => i.Value?.Get()),
+                Attachments = Attachments?.ToDictionary(i => i.Key, i => i.Value?.Get()),
                 ServiceId = ServiceId,
                 DecodeJOject = DecodeJOject,
                 ServiceKey = ServiceKey,
-                Token = Token
             };
         }
     }

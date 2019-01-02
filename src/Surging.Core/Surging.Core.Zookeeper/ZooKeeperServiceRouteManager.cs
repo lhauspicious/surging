@@ -4,6 +4,8 @@ using Surging.Core.CPlatform.Address;
 using Surging.Core.CPlatform.Routing;
 using Surging.Core.CPlatform.Routing.Implementation;
 using Surging.Core.CPlatform.Serialization;
+using Surging.Core.CPlatform.Transport.Implementation;
+using Surging.Core.CPlatform.Utilities;
 using Surging.Core.Zookeeper.Configurations;
 using Surging.Core.Zookeeper.WatcherProvider;
 using System;
@@ -143,6 +145,7 @@ namespace Surging.Core.Zookeeper
 
         public override async Task SetRoutesAsync(IEnumerable<ServiceRoute> routes)
         {
+            var hostAddr = NetUtils.GetHostAddress();
             var serviceRoutes = await GetRoutes(routes.Select(p => p.ServiceDescriptor.Id));
             if (serviceRoutes.Count() > 0)
             {
@@ -151,16 +154,23 @@ namespace Surging.Core.Zookeeper
                     var serviceRoute = serviceRoutes.Where(p => p.ServiceDescriptor.Id == route.ServiceDescriptor.Id).FirstOrDefault();
                     if (serviceRoute != null)
                     {
-                        route.Address = serviceRoute.Address.Concat(
-                          route.Address.Except(serviceRoute.Address));
+                        var addresses = serviceRoute.Address.Concat(
+                          route.Address.Except(serviceRoute.Address)).ToList();
+
+                        foreach (var address in route.Address)
+                        {
+                            addresses.Remove(addresses.Where(p => p.ToString() == address.ToString()).FirstOrDefault());
+                            addresses.Add(address);
+                        }
+                        route.Address = addresses;
                     }
                 }
             }
-            await RemoveExceptRoutesAsync(routes);
+            await RemoveExceptRoutesAsync(routes, hostAddr);
             await base.SetRoutesAsync(routes);
         }
 
-        private async Task RemoveExceptRoutesAsync(IEnumerable<ServiceRoute> routes)
+        private async Task RemoveExceptRoutesAsync(IEnumerable<ServiceRoute> routes, AddressModel hostAddr)
         {
             var path = _configInfo.RoutePath;
             if (!path.EndsWith("/"))
@@ -174,10 +184,9 @@ namespace Surging.Core.Zookeeper
                 foreach (var deletedRouteId in deletedRouteIds)
                 {
                     var addresses = _routes.Where(p => p.ServiceDescriptor.Id == deletedRouteId).Select(p => p.Address).FirstOrDefault();
+                    if (addresses.Contains(hostAddr))
+                    { 
                         var nodePath = $"{path}{deletedRouteId}";
-                    foreach (var address in addresses)
-                    {
-                        if (routes.Any(p => p.Address.Select(a => a.ToString()).Contains(address.ToString())))
                          await _zooKeeper.deleteAsync(nodePath);
                     }
                 }
@@ -189,16 +198,20 @@ namespace Surging.Core.Zookeeper
             if (_zooKeeper != null)
                 await _zooKeeper.closeAsync();
             _zooKeeper = new ZooKeeper(_configInfo.ConnectionString, (int)_configInfo.SessionTimeout.TotalMilliseconds
-               , new ReconnectionWatcher(
-                    () =>
-                    {
-                        _connectionWait.Set();
-                    },
-                    async () =>
-                    {
-                        _connectionWait.Reset();
-                        await CreateZooKeeper();
-                    }));
+             , new ReconnectionWatcher(
+                () =>
+                {
+                    _connectionWait.Set();
+                },
+                () =>
+                {
+                    _connectionWait.Close();
+                },
+                async () =>
+                {
+                    _connectionWait.Reset();
+                    await CreateZooKeeper();
+                }));
 
         }
 
@@ -279,9 +292,8 @@ namespace Surging.Core.Zookeeper
             if (_routes != null)
                 return;
             _connectionWait.WaitOne();
-
             var watcher = new ChildrenMonitorWatcher(_zooKeeper, _configInfo.RoutePath,
-                async (oldChildrens, newChildrens) => await ChildrenChange(oldChildrens, newChildrens));
+             async (oldChildrens, newChildrens) => await ChildrenChange(oldChildrens, newChildrens));
             if (await _zooKeeper.existsAsync(_configInfo.RoutePath, watcher) != null)
             {
                 var result = await _zooKeeper.getChildrenAsync(_configInfo.RoutePath, watcher);
@@ -328,6 +340,7 @@ namespace Surging.Core.Zookeeper
                         .Where(i => i.ServiceDescriptor.Id != newRoute.ServiceDescriptor.Id)
                         .Concat(new[] { newRoute }).ToArray();
             }
+
             //触发路由变更事件。
             OnChanged(new ServiceRouteChangedEventArgs(newRoute, oldRoute));
         }
@@ -345,10 +358,10 @@ namespace Surging.Core.Zookeeper
             //计算出新增的节点。
             var createdChildrens = newChildrens.Except(oldChildrens).ToArray();
 
-            if (_logger.IsEnabled(LogLevel.Information))
-                _logger.LogInformation($"需要被删除的路由节点：{string.Join(",", deletedChildrens)}");
-            if (_logger.IsEnabled(LogLevel.Information))
-                _logger.LogInformation($"需要被添加的路由节点：{string.Join(",", createdChildrens)}");
+            if (_logger.IsEnabled(LogLevel.Debug))
+                _logger.LogDebug($"需要被删除的路由节点：{string.Join(",", deletedChildrens)}");
+            if (_logger.IsEnabled(LogLevel.Debug))
+                _logger.LogDebug($"需要被添加的路由节点：{string.Join(",", createdChildrens)}");
 
             //获取新增的路由信息。
             var newRoutes = (await GetRoutes(createdChildrens)).ToArray();

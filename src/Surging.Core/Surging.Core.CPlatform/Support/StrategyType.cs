@@ -1,12 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-
-namespace Surging.Core.CPlatform.Support
+﻿namespace Surging.Core.CPlatform.Support
 {
-   public enum StrategyType
+    public enum StrategyType
     {
         Failover=0,
         Injection=1,
+        FallBack=2,
     }
 }

@@ -11,8 +11,8 @@ using Surging.Core.CPlatform.Runtime.Client;
 using Surging.Core.CPlatform.Runtime.Server;
 using Surging.Core.CPlatform.Serialization;
 using System;
-using System.Collections.Generic;
-using System.Text;
+using Microsoft.Extensions.Configuration;
+using Surging.Core.CPlatform.Mqtt;
 
 namespace Surging.Core.Consul
 {
@@ -28,19 +28,20 @@ namespace Surging.Core.Consul
         {
             return builder.UseRouteManager(provider =>
              new ConsulServiceRouteManager(
-                configInfo,
+                 GetConfigInfo(configInfo),
               provider.GetRequiredService<ISerializer<byte[]>>(),
                 provider.GetRequiredService<ISerializer<string>>(),
                 provider.GetRequiredService<IClientWatchManager>(),
                 provider.GetRequiredService<IServiceRouteFactory>(),
-                provider.GetRequiredService<ILogger<ConsulServiceRouteManager>>()));
+                provider.GetRequiredService<ILogger<ConsulServiceRouteManager>>(),
+                 provider.GetRequiredService<IServiceHeartbeatManager>()));
         }
 
         public static IServiceBuilder UseConsulCacheManager(this IServiceBuilder builder, ConfigInfo configInfo)
         {
             return builder.UseCacheManager(provider =>
              new ConsulServiceCacheManager(
-                configInfo,
+                 GetConfigInfo(configInfo),
               provider.GetRequiredService<ISerializer<byte[]>>(),
                 provider.GetRequiredService<ISerializer<string>>(),
                 provider.GetRequiredService<IClientWatchManager>(),
@@ -59,14 +60,29 @@ namespace Surging.Core.Consul
             return builder.UseCommandManager(provider =>
             {
                 var result = new ConsulServiceCommandManager(
-                    configInfo,
+                     GetConfigInfo(configInfo),
                   provider.GetRequiredService<ISerializer<byte[]>>(),
                     provider.GetRequiredService<ISerializer<string>>(),
+                    provider.GetRequiredService <IServiceRouteManager>(),
                     provider.GetRequiredService<IClientWatchManager>(),
                     provider.GetRequiredService<IServiceEntryManager>(),
-                    provider.GetRequiredService<ILogger<ConsulServiceCommandManager>>());
+                    provider.GetRequiredService<ILogger<ConsulServiceCommandManager>>(),
+                      provider.GetRequiredService<IServiceHeartbeatManager>());
                 return result;
             });
+        }
+
+        public static IServiceBuilder UseConsulMqttRouteManager(this IServiceBuilder builder, ConfigInfo configInfo)
+        {
+            return builder.UseMqttRouteManager(provider =>
+             new ConsulMqttServiceRouteManager(
+                 GetConfigInfo(configInfo),
+              provider.GetRequiredService<ISerializer<byte[]>>(),
+                provider.GetRequiredService<ISerializer<string>>(),
+                provider.GetRequiredService<IClientWatchManager>(),
+                provider.GetRequiredService<IMqttServiceFactory>(),
+                provider.GetRequiredService<ILogger<ConsulMqttServiceRouteManager>>(),
+                 provider.GetRequiredService<IServiceHeartbeatManager>()));
         }
 
         public static IServiceBuilder UseConsulServiceSubscribeManager(this IServiceBuilder builder, ConfigInfo configInfo)
@@ -74,7 +90,7 @@ namespace Surging.Core.Consul
             return builder.UseSubscribeManager(provider =>
             {
                 var result = new ConsulServiceSubscribeManager(
-                    configInfo,
+                    GetConfigInfo(configInfo),
                     provider.GetRequiredService<ISerializer<byte[]>>(),
                     provider.GetRequiredService<ISerializer<string>>(),
                     provider.GetRequiredService<IClientWatchManager>(),
@@ -94,16 +110,60 @@ namespace Surging.Core.Consul
             builder.Services.Register(provider =>
             {
                 return new ClientWatchManager(configInfo);
-            }).As<IClientWatchManager>();
+            }).As<IClientWatchManager>().SingleInstance();
             return builder;
         }
 
+        [Obsolete]
         public static IServiceBuilder UseConsulManager(this IServiceBuilder builder, ConfigInfo configInfo)
         {
             return builder.UseConsulRouteManager(configInfo)
                 .UseConsulServiceSubscribeManager(configInfo)
                .UseConsulCommandManager(configInfo)
-               .UseConsulCacheManager(configInfo).UseConsulWatch(configInfo);
+               .UseConsulCacheManager(configInfo)
+               .UseConsulWatch(configInfo)
+               .UseConsulMqttRouteManager(configInfo);
+        }
+
+        [Obsolete]
+        public static IServiceBuilder UseConsulManager(this IServiceBuilder builder)
+        {
+            var configInfo = new ConfigInfo(null);
+            return builder.UseConsulRouteManager(configInfo)
+                .UseConsulServiceSubscribeManager(configInfo)
+               .UseConsulCommandManager(configInfo)
+               .UseConsulCacheManager(configInfo).UseConsulWatch(configInfo)
+               .UseConsulMqttRouteManager(configInfo);
+        }
+
+
+        private static ConfigInfo GetConfigInfo(ConfigInfo config)
+        {
+            ConsulOption option = null;
+            var section = CPlatform.AppConfig.GetSection("Consul");
+            if (section.Exists())
+                option = section.Get<ConsulOption>();
+            else if(AppConfig.Configuration!=null)
+                option = AppConfig.Configuration.Get<ConsulOption>();
+            if (option != null)
+            {
+                var sessionTimeout = config.SessionTimeout.TotalSeconds;
+                Double.TryParse(option.SessionTimeout, out sessionTimeout);
+                config = new ConfigInfo(
+                   option.ConnectionString,
+                    TimeSpan.FromSeconds(sessionTimeout),
+                    option.RoutePath ?? config.RoutePath,
+                    option.SubscriberPath ?? config.SubscriberPath,
+                    option.CommandPath  ?? config.CommandPath,
+                    option.CachePath ?? config.CachePath,
+                    option.MqttRoutePath ?? config.MqttRoutePath,
+                   option.ReloadOnChange != null ? bool.Parse(option.ReloadOnChange) :
+                    config.ReloadOnChange,
+                    option.EnableChildrenMonitor != null ? bool.Parse(option.EnableChildrenMonitor) :
+                    config.EnableChildrenMonitor
+                   );
+            }
+            return config;
         }
     }
 }

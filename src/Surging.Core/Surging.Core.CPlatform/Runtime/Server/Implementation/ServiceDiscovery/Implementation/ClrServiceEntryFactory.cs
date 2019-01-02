@@ -45,10 +45,10 @@ namespace Surging.Core.CPlatform.Runtime.Server.Implementation.ServiceDiscovery.
         /// <returns>服务条目集合。</returns>
         public IEnumerable<ServiceEntry> CreateServiceEntry(Type service)
         {
-            var routeTemplate = service.GetCustomAttribute<ServiceBundleAttribute>() ;
+            var routeTemplate = service.GetCustomAttribute<ServiceBundleAttribute>();
             foreach (var methodInfo in service.GetTypeInfo().GetMethods())
             {
-                yield return Create(methodInfo,service.Name, routeTemplate.RouteTemplate);
+                yield return Create(methodInfo, service.Name, routeTemplate.RouteTemplate);
             }
         }
         #endregion Implementation of IClrServiceEntryFactory
@@ -64,17 +64,16 @@ namespace Surging.Core.CPlatform.Runtime.Server.Implementation.ServiceDiscovery.
                 Id = serviceId,
                 RoutePath = RoutePatternParser.Parse(routeTemplate, serviceName, method.Name)
             };
-
             var descriptorAttributes = method.GetCustomAttributes<ServiceDescriptorAttribute>();
             foreach (var descriptorAttribute in descriptorAttributes)
             {
                 descriptorAttribute.Apply(serviceDescriptor);
             }
             var authorization = attributes.Where(p => p is AuthorizationFilterAttribute).FirstOrDefault();
-            serviceDescriptor.EnableAuthorization(authorization != null);
+            if (authorization != null)
+                serviceDescriptor.EnableAuthorization(true);
             if (authorization != null)
             {
-                ;
                 serviceDescriptor.AuthType(((authorization as AuthorizationAttribute)?.AuthType)
                     ?? AuthorizationType.AppSecret);
             }
@@ -82,6 +81,9 @@ namespace Surging.Core.CPlatform.Runtime.Server.Implementation.ServiceDiscovery.
             return new ServiceEntry
             {
                 Descriptor = serviceDescriptor,
+                RoutePath = serviceDescriptor.RoutePath,
+                MethodName = method.Name,
+                Type = method.DeclaringType,
                 Attributes = attributes,
                 Func = (key, parameters) =>
              {
@@ -90,6 +92,12 @@ namespace Surging.Core.CPlatform.Runtime.Server.Implementation.ServiceDiscovery.
 
                  foreach (var parameterInfo in method.GetParameters())
                  {
+                     //加入是否有默认值的判断，有默认值，并且用户没传，取默认值
+                     if (parameterInfo.HasDefaultValue && !parameters.ContainsKey(parameterInfo.Name))
+                     {
+                         list.Add(parameterInfo.DefaultValue);
+                         continue;
+                     }
                      var value = parameters[parameterInfo.Name];
                      var parameterType = parameterInfo.ParameterType;
                      var parameter = _typeConvertibleService.Convert(value, parameterType);
@@ -100,7 +108,7 @@ namespace Surging.Core.CPlatform.Runtime.Server.Implementation.ServiceDiscovery.
              }
             };
         }
-
+        
         private FastInvokeHandler GetHandler(string key, MethodInfo method)
         {
             var objInstance = ServiceResolver.Current.GetService(null, key);
